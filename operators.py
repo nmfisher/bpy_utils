@@ -11,23 +11,27 @@ from bpy.types import (Operator,
                        Panel,
                        PropertyGroup,
                        UIList)
+
 class CUSTOM_OT_list_aware(Operator):
     """An abstract base class, used to store the names of a (Scene) list property used to populate a UI element, and the index of the currently active item in that list. Internal only."""
+
     list_prop_name: bpy.props.StringProperty(
         name="List Property Name",
         description="The name of the list property to operate on",
         default=""
     )
     
-    active_index_prop_name: bpy.props.StringProperty(
+    index_prop_name: bpy.props.StringProperty(
         name="Active List Index Property Name",
         description="The name of the (scene) property used to store the index of the active item in the list",
         default=""
     )
 
-    def targets(self, context):
+    @classmethod
+    def get_targets(self, context):
+        print(f"Getting list_prop_name {self.list_prop_name} and index_prop_name {self.index_prop_name}")
         targets = getattr(context.scene, self.list_prop_name)
-        idx = getattr(context.scene, self.active_index_prop_name)
+        idx = getattr(context.scene, self.index_prop_name)
         return (idx, targets)
     
 
@@ -69,9 +73,12 @@ class CUSTOM_OT_actions(CUSTOM_OT_list_aware):
                 self.report({'INFO'}, info)
 
             elif self.action == 'REMOVE':
-                info = 'Item "%s" removed from list' % (targets[idx].name)
-                idx -= 1
+                if idx < 0:
+                    raise Exception("error")
+                info = f"Removed item {targets[idx].name}"
+                print(targets)
                 targets.remove(idx)
+                idx -= 1
                 self.report({'INFO'}, info)
                 
         if self.action == 'ADD':
@@ -115,7 +122,7 @@ class CUSTOM_OT_addViewportSelection(CUSTOM_OT_list_aware):
         return{'FINISHED'}
     
     
-class CUSTOM_OT_printItems(Operator):
+class CUSTOM_OT_printItems(CUSTOM_OT_list_aware):
     """Print all items and their properties to the console"""
     bl_idname = "custom.print_items"
     bl_label = "Print Items to Console"
@@ -287,9 +294,8 @@ class CUSTOM_OT_deleteObject(CUSTOM_OT_list_aware):
 
     @classmethod
     def poll(cls, context):
-
-        targets = getattr(context.scene, self.list_prop_name)
-        return bool(context.scene.ll_targets)
+        idx, targets = self.get_targets(context)
+        return bool(targets)
 
     def invoke(self, context, event):
         return context.window_manager.invoke_confirm(self, event)
@@ -313,22 +319,51 @@ class CUSTOM_OT_deleteObject(CUSTOM_OT_list_aware):
                 ob.select_set(True)
                 bpy.ops.object.delete()
                 
-            info = ' Item "%s" removed from Scene' % (len(selected_objs))
-            idx -= 1
             targets.remove(idx)
+            info = f"Removed item {idx} from selection, {len(targets)} items remaining"
+            idx -= 1
+            print(idx)
             self.report({'INFO'}, info)
         return{'FINISHED'}
     
-    
-class CUSTOM_UL_items(UIList):
-   
+class CUSTOM_UL_items(UIList):   
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
         obj = item.obj
         custom_icon = "OUTLINER_OB_%s" % obj.type
         layout.prop(obj, "name", text="", emboss=False, translate=False, icon=custom_icon)
             
     def invoke(self, context, event):
+        print("UL_items INVOKE")
         pass   
 
-__all__ = ['CUSTOM_UL_items', 'CUSTOM_OL_deleteObject', 'CUSTOM_OT_selectItems', 'CUSTOM_OT_removeDuplicates', 'CUSTOM_OT_clearList', 'CUSTOM_OT_printItems', 'CUSTOM_OT_addViewportSelection', 'CUSTOM_OT_actions' ]
+class ObjectSlot(bpy.types.PropertyGroup):
+    obj: bpy.props.PointerProperty(name="Object",type=bpy.types.Object)
+
+classes = [CUSTOM_OT_deleteObject, CUSTOM_OT_selectItems, CUSTOM_OT_removeDuplicates, CUSTOM_OT_clearList, CUSTOM_OT_printItems, CUSTOM_OT_addViewportSelection, CUSTOM_OT_actions ]
+
+def register_custom_list_operators(identifier, list_prop_name, index_prop_name):
+    print(f"Registering custom operators with list property {list_prop_name} and index property {index_prop_name}")
+    for clazz in classes:
+        idname = identifier + "_" + clazz.bl_idname
+        classname = clazz.__name__ + "_" + identifier
+        opclass = type(classname, (clazz, ), { "bl_idname": idname, "list_prop_name":list_prop_name, "index_prop_name":index_prop_name })
+        bpy.utils.register_class(opclass)
+    bpy.utils.register_class(CUSTOM_UL_items)
+    bpy.utils.register_class(ObjectSlot)
+    setattr(bpy.types.Scene, list_prop_name, bpy.props.CollectionProperty(type=ObjectSlot))
+    setattr(bpy.types.Scene, index_prop_name, bpy.props.IntProperty())
+
+def unregister_custom_list_operators(identifier, list_prop_name, index_prop_name):
+    for clazz in classes:
+        try: 
+            bpy.utils.unregister_class(clazz)
+        except:
+            continue
+    bpy.utils.unregister_class(ObjectSlot)
+    bpy.utils.unregister_class(CUSTOM_UL_items)
+    delattr(bpy.types.Scene, list_prop_name)
+    delattr(bpy.types.Scene, index_prop_name)
+
+#__all__ = [type(c).__name__ for name in classes] + ["register_custom_list_operators"]
+__all__ = [ "register_custom_list_operators", "unregister_custom_list_operators" ]
 
