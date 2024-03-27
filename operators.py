@@ -11,25 +11,32 @@ from bpy.types import (Operator,
                        Panel,
                        PropertyGroup,
                        UIList)
-
-class CUSTOM_OT_actions(Operator):
-    """Move items up and down, add and remove"""
-    bl_idname = "custom.list_action"
-    bl_label = "List Actions"
-    bl_description = "Move items up and down, add and remove"
-    bl_options = {'REGISTER'}
-
+class CUSTOM_OT_list_aware(Operator):
+    """An abstract base class, used to store the names of a (Scene) list property used to populate a UI element, and the index of the currently active item in that list. Internal only."""
     list_prop_name: bpy.props.StringProperty(
         name="List Property Name",
         description="The name of the list property to operate on",
         default=""
     )
     
-    list_prop_idx: bpy.props.IntProperty(
-        name="List Property Index",
-        description="The index of the active item in the list property",
+    active_index_prop_name: bpy.props.StringProperty(
+        name="Active List Index Property Name",
+        description="The name of the (scene) property used to store the index of the active item in the list",
         default=""
     )
+
+    def targets(self, context):
+        targets = getattr(context.scene, self.list_prop_name)
+        idx = getattr(context.scene, self.active_index_prop_name)
+        return (idx, targets)
+    
+
+class CUSTOM_OT_actions(CUSTOM_OT_list_aware):
+    """Move items up and down, add and remove"""
+    bl_idname = "custom.list_action"
+    bl_label = "List Actions"
+    bl_description = "Move items up and down, add and remove"
+    bl_options = {'REGISTER'}
 
     action: bpy.props.EnumProperty(
         items=(
@@ -40,8 +47,7 @@ class CUSTOM_OT_actions(Operator):
 
     def invoke(self, context, event):
         scn = context.scene
-        targets = getattr(scn, self.list_prop_name)
-        idx = getattr(scn, self.list_prop_idx)
+        idx, targets = self.get_targets(context)
 
         try:
             item = targets[idx]
@@ -84,14 +90,15 @@ class CUSTOM_OT_actions(Operator):
         return {"FINISHED"}
     
 
-class CUSTOM_OT_addViewportSelection(Operator):
+class CUSTOM_OT_addViewportSelection(CUSTOM_OT_list_aware):
     """Add all items currently selected in the viewport"""
     bl_idname = "custom.add_viewport_selection"
     bl_label = "Add Viewport Selection to List"
     bl_description = "Add all items currently selected in the viewport"
     bl_options = {'REGISTER', 'UNDO'}
-    
+
     def execute(self, context):
+        idx, targets = self.get_targets(context)
         scn = context.scene
         selected_objs = context.selected_objects
         if selected_objs:
@@ -121,10 +128,13 @@ class CUSTOM_OT_printItems(Operator):
     
     @classmethod
     def poll(cls, context):
-        return bool(context.scene.ll_targets)
+        idx, targets = self.get_targets(context)
+        return bool(targets)
     
     def execute(self, context):
         scn = context.scene
+
+        idx, targets = self.get_targets(context)
         if self.reverse_order:
             for i in range(idx, -1, -1):        
                 ob = targets[i].obj
@@ -136,7 +146,7 @@ class CUSTOM_OT_printItems(Operator):
         return{'FINISHED'}
 
 
-class CUSTOM_OT_clearList(Operator):
+class CUSTOM_OT_clearList(CUSTOM_OT_list_aware):
     """Clear all items of the list"""
     bl_idname = "custom.clear_list"
     bl_label = "Clear List"
@@ -145,21 +155,23 @@ class CUSTOM_OT_clearList(Operator):
 
     @classmethod
     def poll(cls, context):
-        return bool(context.scene.ll_targets)
+        idx, targets = self.get_targets(context)
+        return bool(targets)
 
     def invoke(self, context, event):
         return context.window_manager.invoke_confirm(self, event)
         
     def execute(self, context):
-        if bool(context.scene.ll_targets):
-            context.scene.ll_targets.clear()
+        idx, targets = self.get_targets(context)
+        if bool(targets):
+            targets.clear()
             self.report({'INFO'}, "All items removed")
         else:
             self.report({'INFO'}, "Nothing to remove")
         return{'FINISHED'}
     
     
-class CUSTOM_OT_removeDuplicates(Operator):
+class CUSTOM_OT_removeDuplicates(CUSTOM_OT_list_aware):
     """Remove all duplicates"""
     bl_idname = "custom.remove_duplicates"
     bl_label = "Remove Duplicates"
@@ -168,8 +180,9 @@ class CUSTOM_OT_removeDuplicates(Operator):
 
     def find_duplicates(self, context):
         """find all duplicates by name"""
+        idx, targets = self.get_targets(context)
         name_lookup = {}
-        for c, i in enumerate(context.scene.ll_targets):
+        for c, i in enumerate(targets):
             name_lookup.setdefault(i.obj.name, []).append(c)
         duplicates = set()
         for name, indices in name_lookup.items():
@@ -179,10 +192,12 @@ class CUSTOM_OT_removeDuplicates(Operator):
         
     @classmethod
     def poll(cls, context):
-        return bool(context.scene.ll_targets)
+        idx, targets = self.get_targets(context)
+        return bool(targets)
         
     def execute(self, context):
         scn = context.scene
+        idx, targets = self.get_targets(context)
         removed_items = []
         # Reverse the list before removing the items
         for i in self.find_duplicates(context)[::-1]:
@@ -200,7 +215,7 @@ class CUSTOM_OT_removeDuplicates(Operator):
         return context.window_manager.invoke_confirm(self, event)
     
     
-class CUSTOM_OT_selectItems(Operator):
+class CUSTOM_OT_selectItems(CUSTOM_OT_list_aware):
     """Select Items in the Viewport"""
     bl_idname = "custom.select_items"
     bl_label = "Select Item(s) in Viewport"
@@ -214,11 +229,13 @@ class CUSTOM_OT_selectItems(Operator):
         
     @classmethod
     def poll(cls, context):
-        return bool(context.scene.ll_targets)
+        idx, targets = self.get_targets(context)
+        return bool(targets)
     
     def execute(self, context):
         scn = context.scene
-        idx = idx
+
+        idx, targets = self.get_targets(context)
         
         try:
             item = targets[idx]
@@ -261,7 +278,7 @@ class CUSTOM_OT_selectItems(Operator):
         return{'FINISHED'}
 
 
-class CUSTOM_OT_deleteObject(Operator):
+class CUSTOM_OT_deleteObject(CUSTOM_OT_list_aware):
     """Delete object from scene"""
     bl_idname = "custom.delete_object"
     bl_label = "Remove Object from Scene"
@@ -270,15 +287,18 @@ class CUSTOM_OT_deleteObject(Operator):
 
     @classmethod
     def poll(cls, context):
+
+        targets = getattr(context.scene, self.list_prop_name)
         return bool(context.scene.ll_targets)
 
     def invoke(self, context, event):
         return context.window_manager.invoke_confirm(self, event)
         
     def execute(self, context):
+        idx, targets = self.get_targets(context)
         scn = context.scene
+
         selected_objs = context.selected_objects
-        idx = idx
         try:
             item = targets[idx]
         except IndexError:
@@ -310,4 +330,5 @@ class CUSTOM_UL_items(UIList):
     def invoke(self, context, event):
         pass   
 
+__all__ = ['CUSTOM_UL_items', 'CUSTOM_OL_deleteObject', 'CUSTOM_OT_selectItems', 'CUSTOM_OT_removeDuplicates', 'CUSTOM_OT_clearList', 'CUSTOM_OT_printItems', 'CUSTOM_OT_addViewportSelection', 'CUSTOM_OT_actions' ]
 
