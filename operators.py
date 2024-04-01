@@ -90,7 +90,7 @@ class CUSTOM_OT_actions(CUSTOM_OT_list_aware):
                     item.name = context.object.name
                     item.obj = context.object
                     idx = len(targets)-1
-                    info = '"%s" added to LiveLinkFace targets' % (item.name)
+                    info = '"%s" added to targets' % (item.name)
                     self.report({'INFO'}, info)
             else:
                 self.report({'INFO'}, "Nothing selected in the Viewport")
